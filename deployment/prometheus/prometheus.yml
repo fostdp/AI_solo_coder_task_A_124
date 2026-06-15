@@ -1,0 +1,64 @@
+# Prometheus全局配置
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'lingqu-dou-gate-prod'
+    environment: 'production'
+
+# 告警规则文件
+# rule_files:
+#   - "alerts/*.yml"
+
+# 抓取配置
+scrape_configs:
+  # ==================== Go后端服务 ====================
+  - job_name: 'dou-gate-backend'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['backend:6060']
+        labels:
+          service: 'scheduler-service'
+          component: 'go-app'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+
+  # ==================== 传感器模拟器 ====================
+  - job_name: 'sensor-simulator'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['sensor-simulator:9090']
+        labels:
+          service: 'sensor-simulator'
+          component: 'simulator'
+    scrape_interval: 5s
+
+  # ==================== TimescaleDB (pg_stat_statements) ====================
+  - job_name: 'timescaledb'
+    static_configs:
+      - targets: ['timescaledb:9187']
+        labels:
+          service: 'timescaledb'
+          component: 'database'
+    scrape_interval: 30s
+
+  # ==================== MQTT Broker (EMQX) ====================
+  - job_name: 'emqx-mqtt'
+    metrics_path: '/api/v5/prometheus/auth'
+    static_configs:
+      - targets: ['emqx:18083']
+        labels:
+          service: 'emqx'
+          component: 'mqtt-broker'
+    scrape_interval: 15s
+    params:
+      type: ['node']
+
+  # ==================== Nginx ====================
+  - job_name: 'nginx-frontend'
+    static_configs:
+      - targets: ['frontend:9113']
+        labels:
+          service: 'nginx'
+          component: 'frontend'
+    scrape_interval: 30s

@@ -1,0 +1,35 @@
+{
+  "gate_count": 36,
+  "interval_ms": 1000,
+  "mqtt_broker": "tcp://emqx:1883",
+  "mqtt_topic": "lingqu/sensors",
+  "http_endpoint": "http://backend:8080/api/sensors",
+  "ship_generation_rate": 0.05,
+  "water_level_noise": 0.1,
+  "gates": [
+    {
+      "id": 1, "name": "陡门1号",
+      "base_up": 7.2, "base_down": 3.8,
+      "amplitude": 0.5, "period_sec": 300,
+      "noise_stddev": 0.08,
+      "max_width": 6.0, "max_height": 8.0,
+      "fault_rate": 0.001
+    },
+    {
+      "id": 2, "name": "陡门2号",
+      "base_up": 7.1, "base_down": 3.7,
+      "amplitude": 0.4, "period_sec": 350,
+      "noise_stddev": 0.09,
+      "max_width": 6.0, "max_height": 8.0,
+      "fault_rate": 0.001
+    },
+    {
+      "id": 3, "name": "陡门3号",
+      "base_up": 7.0, "base_down": 3.6,
+      "amplitude": 0.45, "period_sec": 320,
+      "noise_stddev": 0.1,
+      "max_width": 6.0, "max_height": 8.0,
+      "fault_rate": 0.001
+    }
+  ]
+}

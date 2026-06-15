@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"lingqu-dou-gate/internal/middleware"
 	"lingqu-dou-gate/internal/models"
 	"lingqu-dou-gate/internal/modules/alarm_mqtt"
 	"lingqu-dou-gate/internal/modules/dtu_receiver"
@@ -20,6 +21,7 @@ type Handler struct {
 	hydraulicSim  *hydraulic_sim.HydraulicSimulator
 	schedulerGA   *scheduler_ga.GAScheduler
 	alarmMqtt     *alarm_mqtt.AlarmMqtt
+	metrics       *middleware.MetricsCollector
 }
 
 func NewHandler(
@@ -27,6 +29,7 @@ func NewHandler(
 	hydro *hydraulic_sim.HydraulicSimulator,
 	sched *scheduler_ga.GAScheduler,
 	alarm *alarm_mqtt.AlarmMqtt,
+	metrics *middleware.MetricsCollector,
 ) *Handler {
 	return &Handler{
 		sensorService: services.NewSensorService(),
@@ -34,6 +37,7 @@ func NewHandler(
 		hydraulicSim:  hydro,
 		schedulerGA:   sched,
 		alarmMqtt:     alarm,
+		metrics:       metrics,
 	}
 }
 
@@ -105,6 +109,7 @@ func (h *Handler) PostSensorData(c *gin.Context) {
 	}
 
 	h.dtuReceiver.Submit(data)
+	h.metrics.IncSensorDataReceived()
 
 	c.JSON(http.StatusAccepted, gin.H{"status": "accepted", "data": data})
 }
@@ -160,6 +165,7 @@ func (h *Handler) SimulatePassage(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
 			return
 		}
+		h.metrics.IncSimulation()
 		c.JSON(http.StatusOK, gin.H{"data": result})
 	case <-time.After(10 * time.Second):
 		c.JSON(http.StatusRequestTimeout, gin.H{"error": "simulation timeout"})
@@ -224,6 +230,7 @@ func (h *Handler) OptimizeSchedule(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
 			return
 		}
+		h.metrics.IncOptimization(result.Generations, result.TotalWaitTime)
 		c.JSON(http.StatusOK, gin.H{
 			"data": gin.H{
 				"schedule":      result.Schedule,
@@ -276,6 +283,7 @@ func (h *Handler) TestAlert(c *gin.Context) {
 
 	alerts := []models.Alert{testAlert}
 	h.alarmMqtt.ProcessAlertsManual(alerts)
+	h.metrics.ProcessAlertsBridge(alerts)
 
 	c.JSON(http.StatusOK, gin.H{"status": "alert sent", "data": testAlert})
 }

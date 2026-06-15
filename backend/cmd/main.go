@@ -1,7 +1,10 @@
 package main
 
 import (
+	"expvar"
 	"log"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
@@ -9,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"lingqu-dou-gate/internal/config"
 	"lingqu-dou-gate/internal/handlers"
+	"lingqu-dou-gate/internal/middleware"
 	"lingqu-dou-gate/internal/modules/alarm_mqtt"
 	"lingqu-dou-gate/internal/modules/dtu_receiver"
 	"lingqu-dou-gate/internal/modules/hydraulic_sim"
@@ -16,8 +20,16 @@ import (
 	"lingqu-dou-gate/internal/services"
 )
 
+var (
+	buildTime = "unknown"
+	gitHash   = "unknown"
+	version   = "dev"
+)
+
 func main() {
 	config.Load()
+
+	log.Printf("Starting DouGate Scheduler | version=%s | git=%s | built=%s", version, gitHash, buildTime)
 
 	services.InitDB()
 	defer services.CloseDB()
@@ -29,6 +41,8 @@ func main() {
 	hydraulicSim := hydraulic_sim.NewHydraulicSimulator(2)
 	schedulerGA := scheduler_ga.NewGAScheduler(2)
 	alarmMqtt := alarm_mqtt.NewAlarmMqtt(dtuReceiver.ValidatedDataChannel(), 2)
+
+	metrics := middleware.GetMetricsCollector()
 
 	dtuReceiver.Start()
 	hydraulicSim.Start()
@@ -47,7 +61,32 @@ func main() {
 		hydraulicSim,
 		schedulerGA,
 		alarmMqtt,
+		metrics,
 	)
+
+	// ======== pprof + Prometheus + expvar 管理端点（6060端口）========
+	go func() {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/debug/vars", expvar.Handler().ServeHTTP)
+		mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.WriteHeader(200)
+			w.Write([]byte(metrics.ExportPrometheus()))
+		})
+		mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"status":"ok","version":"` + version + `","build":"` + buildTime + `"}`))
+		})
+		mux.HandleFunc("/build", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"version":"` + version + `","git_hash":"` + gitHash + `","build_time":"` + buildTime + `"}`))
+		})
+		adminAddr := "0.0.0.0:6060"
+		log.Printf("Admin server [pprof/metrics/expvar] starting on %s", adminAddr)
+		if err := http.ListenAndServe(adminAddr, mux); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Admin server error: %v", err)
+		}
+	}()
 
 	r := gin.Default()
 
@@ -61,6 +100,11 @@ func main() {
 		}
 		c.Next()
 	})
+
+	// ======== Prometheus HTTP指标中间件 ========
+	r.Use(gin.WrapH(metrics.HTTPMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 作为gin的中间件栈嵌入；gin.WrapH会把它转换为gin handler
+	}))))
 
 	api := r.Group("/api")
 	{
@@ -82,12 +126,13 @@ func main() {
 	}
 
 	addr := config.AppConfig.Server.Host + ":" + config.AppConfig.Server.Port
-	log.Printf("Server starting on %s", addr)
+	log.Printf("API server starting on %s", addr)
 	log.Printf("Modules: DTU=running, HydraulicSim=running, SchedulerGA=running, AlarmMQTT=running")
+	log.Printf("Endpoints: /debug/pprof /metrics /healthz on :6060")
 
 	go func() {
 		if err := r.Run(addr); err != nil {
-			log.Fatalf("Failed to start server: %v", err)
+			log.Fatalf("Failed to start API server: %v", err)
 		}
 	}()
 
