@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>灵渠陡门提升船舶水位仿真与水力优化系统</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
+            background: #0a1628;
+            color: #fff;
+            overflow: hidden;
+        }
+
+        #app {
+            display: flex;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        .sidebar {
+            width: 320px;
+            background: linear-gradient(180deg, #0f1e35 0%, #0a1628 100%);
+            border-right: 1px solid #1e3a5f;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            background: linear-gradient(135deg, #1a4a7a 0%, #0f2850 100%);
+            border-bottom: 1px solid #1e3a5f;
+        }
+
+        .sidebar-header h1 {
+            font-size: 16px;
+            color: #4fc3f7;
+            margin-bottom: 4px;
+        }
+
+        .sidebar-header p {
+            font-size: 12px;
+            color: #81d4fa;
+            opacity: 0.7;
+        }
+
+        .gate-list {
+            flex: 1;
+            padding: 10px;
+        }
+
+        .gate-item {
+            padding: 12px 15px;
+            margin-bottom: 6px;
+            background: rgba(30, 58, 95, 0.3);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s;
+            border-left: 3px solid transparent;
+        }
+
+        .gate-item:hover {
+            background: rgba(30, 58, 95, 0.6);
+        }
+
+        .gate-item.active {
+            background: rgba(79, 195, 247, 0.2);
+            border-left-color: #4fc3f7;
+        }
+
+        .gate-item .gate-name {
+            font-size: 14px;
+            font-weight: 500;
+            color: #e3f2fd;
+        }
+
+        .gate-item .gate-status {
+            font-size: 11px;
+            margin-top: 4px;
+            display: flex;
+            justify-content: space-between;
+            color: #90caf9;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 6px;
+        }
+
+        .status-dot.normal {
+            background: #4caf50;
+            box-shadow: 0 0 6px #4caf50;
+        }
+
+        .status-dot.warning {
+            background: #ff9800;
+            box-shadow: 0 0 6px #ff9800;
+        }
+
+        .status-dot.critical {
+            background: #f44336;
+            box-shadow: 0 0 6px #f44336;
+        }
+
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .top-bar {
+            height: 50px;
+            background: rgba(15, 30, 53, 0.9);
+            border-bottom: 1px solid #1e3a5f;
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            justify-content: space-between;
+        }
+
+        .top-bar .title {
+            font-size: 16px;
+            color: #4fc3f7;
+        }
+
+        .top-bar .controls {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn {
+            padding: 6px 16px;
+            background: linear-gradient(135deg, #1a4a7a 0%, #0f2850 100%);
+            border: 1px solid #2a5a8a;
+            color: #e3f2fd;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.3s;
+        }
+
+        .btn:hover {
+            background: linear-gradient(135deg, #2a6a9a 0%, #1f4870 100%);
+            border-color: #4fc3f7;
+        }
+
+        .btn.primary {
+            background: linear-gradient(135deg, #0288d1 0%, #01579b 100%);
+            border-color: #4fc3f7;
+        }
+
+        .view-container {
+            flex: 1;
+            display: flex;
+            position: relative;
+        }
+
+        #three-canvas {
+            flex: 1;
+            display: block;
+        }
+
+        #particle-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .info-panel {
+            width: 340px;
+            background: rgba(15, 30, 53, 0.95);
+            border-left: 1px solid #1e3a5f;
+            overflow-y: auto;
+        }
+
+        .panel-section {
+            padding: 15px 20px;
+            border-bottom: 1px solid #1e3a5f;
+        }
+
+        .panel-section h3 {
+            font-size: 14px;
+            color: #4fc3f7;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+        }
+
+        .panel-section h3::before {
+            content: '';
+            width: 3px;
+            height: 14px;
+            background: #4fc3f7;
+            margin-right: 8px;
+            border-radius: 2px;
+        }
+
+        .data-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .data-item {
+            background: rgba(30, 58, 95, 0.3);
+            padding: 10px;
+            border-radius: 6px;
+        }
+
+        .data-item .label {
+            font-size: 11px;
+            color: #90caf9;
+            margin-bottom: 4px;
+        }
+
+        .data-item .value {
+            font-size: 18px;
+            font-weight: 600;
+            color: #e3f2fd;
+        }
+
+        .data-item .unit {
+            font-size: 11px;
+            color: #64b5f6;
+            margin-left: 4px;
+        }
+
+        .chart-container {
+            width: 100%;
+            height: 150px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 6px;
+            margin-top: 10px;
+        }
+
+        .chart-canvas {
+            width: 100%;
+            height: 100%;
+        }
+
+        .alert-list {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .alert-item {
+            padding: 8px 10px;
+            background: rgba(244, 67, 54, 0.1);
+            border-left: 3px solid #f44336;
+            margin-bottom: 6px;
+            border-radius: 0 4px 4px 0;
+            font-size: 12px;
+        }
+
+        .alert-item.warning {
+            background: rgba(255, 152, 0, 0.1);
+            border-left-color: #ff9800;
+        }
+
+        .alert-item.info {
+            background: rgba(33, 150, 243, 0.1);
+            border-left-color: #2196f3;
+        }
+
+        .alert-item .alert-type {
+            font-weight: 500;
+            color: #fff;
+        }
+
+        .alert-item .alert-msg {
+            color: #ccc;
+            margin-top: 2px;
+            font-size: 11px;
+        }
+
+        .schedule-list {
+            max-height: 250px;
+            overflow-y: auto;
+        }
+
+        .schedule-item {
+            display: flex;
+            align-items: center;
+            padding: 8px 10px;
+            background: rgba(30, 58, 95, 0.3);
+            margin-bottom: 6px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        .schedule-item .priority-badge {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: #1a4a7a;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 11px;
+            margin-right: 10px;
+            flex-shrink: 0;
+        }
+
+        .schedule-item .priority-badge.high {
+            background: #f44336;
+        }
+
+        .schedule-item .priority-badge.medium {
+            background: #ff9800;
+        }
+
+        .schedule-item .priority-badge.low {
+            background: #4caf50;
+        }
+
+        .schedule-item .ship-info {
+            flex: 1;
+        }
+
+        .schedule-item .ship-name {
+            color: #e3f2fd;
+            font-weight: 500;
+        }
+
+        .schedule-item .ship-time {
+            color: #90caf9;
+            font-size: 11px;
+            margin-top: 2px;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .control-group label {
+            font-size: 12px;
+            color: #90caf9;
+        }
+
+        .control-group input[type="range"] {
+            width: 100%;
+        }
+
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid #1e3a5f;
+            margin-bottom: 10px;
+        }
+
+        .tab {
+            padding: 8px 16px;
+            cursor: pointer;
+            font-size: 12px;
+            color: #90caf9;
+            border-bottom: 2px solid transparent;
+            transition: all 0.3s;
+        }
+
+        .tab.active {
+            color: #4fc3f7;
+            border-bottom-color: #4fc3f7;
+        }
+
+        .simulation-controls {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .simulation-controls .btn {
+            flex: 1;
+            min-width: 80px;
+        }
+
+        .direction-toggle {
+            display: flex;
+            background: rgba(30, 58, 95, 0.3);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+
+        .direction-toggle button {
+            flex: 1;
+            padding: 8px;
+            background: transparent;
+            border: none;
+            color: #90caf9;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.3s;
+        }
+
+        .direction-toggle button.active {
+            background: #1a4a7a;
+            color: #fff;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <h1>灵渠陡门监控</h1>
+                <p>36座陡门实时监测系统</p>
+            </div>
+            <div class="gate-list" id="gateList"></div>
+        </div>
+
+        <div class="main-content">
+            <div class="top-bar">
+                <div class="title" id="currentGateTitle">陡门1 - 三维仿真视图</div>
+                <div class="controls">
+                    <button class="btn" onclick="resetView()">重置视角</button>
+                    <button class="btn" onclick="toggleAutoRotate()">自动旋转</button>
+                    <button class="btn primary" onclick="startSimulation()">开始仿真</button>
+                </div>
+            </div>
+
+            <div class="view-container">
+                <canvas id="three-canvas"></canvas>
+                <canvas id="particle-canvas"></canvas>
+            </div>
+        </div>
+
+        <div class="info-panel">
+            <div class="panel-section">
+                <h3>实时数据</h3>
+                <div class="data-grid">
+                    <div class="data-item">
+                        <div class="label">上游水位</div>
+                        <div class="value"><span id="waterLevelUp">7.52</span><span class="unit">m</span></div>
+                    </div>
+                    <div class="data-item">
+                        <div class="label">下游水位</div>
+                        <div class="value"><span id="waterLevelDown">3.48</span><span class="unit">m</span></div>
+                    </div>
+                    <div class="data-item">
+                        <div class="label">闸门开度</div>
+                        <div class="value"><span id="gateOpening">50</span><span class="unit">%</span></div>
+                    </div>
+                    <div class="data-item">
+                        <div class="label">瞬时流量</div>
+                        <div class="value"><span id="flowRate">25.6</span><span class="unit">m³/s</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <h3>仿真控制</h3>
+                <div class="direction-toggle">
+                    <button class="active" id="btnUpstream" onclick="setDirection('upstream')">上行充水</button>
+                    <button id="btnDownstream" onclick="setDirection('downstream')">下行放水</button>
+                </div>
+                <div class="control-group">
+                    <label>闸门开度: <span id="openingValue">80</span>%</label>
+                    <input type="range" id="openingSlider" min="0" max="100" value="80" oninput="updateOpening(this.value)">
+                </div>
+                <div style="margin-top: 10px;">
+                    <div class="simulation-controls">
+                        <button class="btn primary" onclick="startPassage()">船舶通行</button>
+                        <button class="btn" onclick="pauseSimulation()">暂停</button>
+                        <button class="btn" onclick="resetSimulation()">重置</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <h3>仿真结果</h3>
+                <div class="data-grid">
+                    <div class="data-item">
+                        <div class="label">充水时间</div>
+                        <div class="value"><span id="fillTime">0</span><span class="unit">s</span></div>
+                    </div>
+                    <div class="data-item">
+                        <div class="label">放水时间</div>
+                        <div class="value"><span id="drainTime">0</span><span class="unit">s</span></div>
+                    </div>
+                    <div class="data-item">
+                        <div class="label">总流量</div>
+                        <div class="value"><span id="totalVolume">0</span><span class="unit">m³</span></div>
+                    </div>
+                    <div class="data-item">
+                        <div class="label">最大流速</div>
+                        <div class="value"><span id="maxFlowRate">0</span><span class="unit">m³/s</span></div>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas class="chart-canvas" id="levelChart"></canvas>
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <h3>调度优化</h3>
+                <div class="tabs">
+                    <div class="tab active">待调度船舶</div>
+                    <div class="tab">优化结果</div>
+                </div>
+                <div class="schedule-list" id="scheduleList"></div>
+                <div style="margin-top: 10px;">
+                    <button class="btn primary" style="width: 100%;" onclick="runOptimization()">遗传算法优化</button>
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <h3>告警信息</h3>
+                <div class="alert-list" id="alertList"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="js/waterParticles.js"></script>
+    <script src="js/douGate3D.js"></script>
+    <script src="js/shipAnimation.js"></script>
+    <script src="js/dataChart.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
