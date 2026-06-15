@@ -1,0 +1,27 @@
+{
+    "gravity": 9.81,
+    "water_density": 1000.0,
+    "kinematic_viscosity": 1e-6,
+    "default_discharge_coefficient": 0.63,
+    "flow_regime": {
+        "free_flow_threshold": 0.67,
+        "submerged_flow_threshold": 0.88,
+        "weir_relative_opening": 0.75,
+        "weir_head_ratio": 0.3,
+        "fully_submerged": 0.97,
+        "transition_width": 0.09
+    },
+    "contraction_coefficient": {
+        "base": 0.615,
+        "linear_term": 0.105,
+        "quadratic_term": -0.02
+    },
+    "submerged_coefficient": 0.92,
+    "weir_coefficient": 1.84,
+    "simulation": {
+        "time_step": 0.25,
+        "max_iterations": 40000,
+        "adaptive_step_ratio": 0.05,
+        "min_dt": 0.01
+    }
+}

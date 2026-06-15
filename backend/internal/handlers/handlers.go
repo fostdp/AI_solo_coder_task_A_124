@@ -6,22 +6,34 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"lingqu-dou-gate/internal/alert"
 	"lingqu-dou-gate/internal/models"
-	"lingqu-dou-gate/internal/optimizer"
+	"lingqu-dou-gate/internal/modules/alarm_mqtt"
+	"lingqu-dou-gate/internal/modules/dtu_receiver"
+	"lingqu-dou-gate/internal/modules/hydraulic_sim"
+	"lingqu-dou-gate/internal/modules/scheduler_ga"
 	"lingqu-dou-gate/internal/services"
-	"lingqu-dou-gate/internal/simulation"
 )
 
 type Handler struct {
 	sensorService *services.SensorService
-	alertManager  *alert.AlertManager
+	dtuReceiver   *dtu_receiver.DTUReceiver
+	hydraulicSim  *hydraulic_sim.HydraulicSimulator
+	schedulerGA   *scheduler_ga.GAScheduler
+	alarmMqtt     *alarm_mqtt.AlarmMqtt
 }
 
-func NewHandler() *Handler {
+func NewHandler(
+	dtu *dtu_receiver.DTUReceiver,
+	hydro *hydraulic_sim.HydraulicSimulator,
+	sched *scheduler_ga.GAScheduler,
+	alarm *alarm_mqtt.AlarmMqtt,
+) *Handler {
 	return &Handler{
 		sensorService: services.NewSensorService(),
-		alertManager:  alert.NewAlertManager(),
+		dtuReceiver:   dtu,
+		hydraulicSim:  hydro,
+		schedulerGA:   sched,
+		alarmMqtt:     alarm,
 	}
 }
 
@@ -92,30 +104,18 @@ func (h *Handler) PostSensorData(c *gin.Context) {
 		data.Time = time.Now()
 	}
 
-	gate, _ := h.sensorService.GetGateByID(data.GateID)
+	h.dtuReceiver.Submit(data)
 
-	if gate != nil {
-		alerts := h.alertManager.CheckSensorData(*gate, data)
-		if len(alerts) > 0 {
-			go h.alertManager.ProcessAlerts(alerts)
-		}
-	}
-
-	if err := h.sensorService.SaveSensorData(data); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusCreated, gin.H{"status": "success", "data": data})
+	c.JSON(http.StatusAccepted, gin.H{"status": "accepted", "data": data})
 }
 
 func (h *Handler) SimulatePassage(c *gin.Context) {
 	var req struct {
-		GateID          uint    `json:"gate_id"`
-		WaterLevelUp    float64 `json:"water_level_up"`
-		WaterLevelDown  float64 `json:"water_level_down"`
-		GateOpening     float64 `json:"gate_opening"`
-		Direction       string  `json:"direction"`
+		GateID         uint    `json:"gate_id"`
+		WaterLevelUp   float64 `json:"water_level_up"`
+		WaterLevelDown float64 `json:"water_level_down"`
+		GateOpening    float64 `json:"gate_opening"`
+		Direction      string  `json:"direction"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -142,10 +142,28 @@ func (h *Handler) SimulatePassage(c *gin.Context) {
 		req.Direction = "upstream"
 	}
 
-	sim := simulation.NewHydroSimulator(*gate)
-	result := sim.SimulateFullPassage(req.WaterLevelUp, req.WaterLevelDown, req.GateOpening, req.Direction)
+	replyChan := make(chan *hydraulic_sim.SimulateResult, 1)
+	simReq := hydraulic_sim.SimulateRequest{
+		Gate:           *gate,
+		WaterLevelUp:   req.WaterLevelUp,
+		WaterLevelDown: req.WaterLevelDown,
+		GateOpening:    req.GateOpening,
+		Direction:      req.Direction,
+		ReplyChan:      replyChan,
+	}
 
-	c.JSON(http.StatusOK, gin.H{"data": result})
+	h.hydraulicSim.Submit(simReq)
+
+	select {
+	case result := <-replyChan:
+		if result.Error != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"data": result})
+	case <-time.After(10 * time.Second):
+		c.JSON(http.StatusRequestTimeout, gin.H{"error": "simulation timeout"})
+	}
 }
 
 func (h *Handler) OptimizeSchedule(c *gin.Context) {
@@ -169,7 +187,11 @@ func (h *Handler) OptimizeSchedule(c *gin.Context) {
 
 	if len(gates) == 0 {
 		allGates, _ := h.sensorService.GetAllGates()
-		gates = allGates[:5]
+		if len(allGates) >= 5 {
+			gates = allGates[:5]
+		} else {
+			gates = allGates
+		}
 	}
 
 	passageTime := 600.0
@@ -186,20 +208,34 @@ func (h *Handler) OptimizeSchedule(c *gin.Context) {
 		}
 	}
 
-	scheduler := optimizer.NewGAScheduler(gates, req.Ships, passageTime)
-	bestSolution, history, generations := scheduler.Optimize()
+	replyChan := make(chan *scheduler_ga.OptimizeResult, 1)
+	optReq := scheduler_ga.OptimizeRequest{
+		Gates:       gates,
+		Ships:       req.Ships,
+		PassageTime: passageTime,
+		ReplyChan:   replyChan,
+	}
 
-	scheduleItems := scheduler.GetScheduleItems(bestSolution)
+	h.schedulerGA.Submit(optReq)
 
-	c.JSON(http.StatusOK, gin.H{
-		"data": gin.H{
-			"schedule":      scheduleItems,
-			"total_wait_time": bestSolution.WaitTime,
-			"fitness":       bestSolution.Fitness,
-			"generations":   generations,
-			"history_count": len(history),
-		},
-	})
+	select {
+	case result := <-replyChan:
+		if result.Error != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"data": gin.H{
+				"schedule":      result.Schedule,
+				"total_wait_time": result.TotalWaitTime,
+				"fitness":       result.Fitness,
+				"generations":   result.Generations,
+				"history_count": result.HistoryCount,
+			},
+		})
+	case <-time.After(30 * time.Second):
+		c.JSON(http.StatusRequestTimeout, gin.H{"error": "optimization timeout"})
+	}
 }
 
 func (h *Handler) GetAlerts(c *gin.Context) {
@@ -209,7 +245,7 @@ func (h *Handler) GetAlerts(c *gin.Context) {
 		gateID = uint(id)
 	}
 
-	alerts, err := h.alertManager.GetUnresolvedAlerts(gateID)
+	alerts, err := h.alarmMqtt.GetUnresolvedAlerts(gateID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -220,7 +256,7 @@ func (h *Handler) GetAlerts(c *gin.Context) {
 
 func (h *Handler) ResolveAlert(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
-	if err := h.alertManager.ResolveAlert(uint(id)); err != nil {
+	if err := h.alarmMqtt.ResolveAlert(uint(id)); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -239,22 +275,43 @@ func (h *Handler) TestAlert(c *gin.Context) {
 	}
 
 	alerts := []models.Alert{testAlert}
-	h.alertManager.ProcessAlerts(alerts)
+	h.alarmMqtt.ProcessAlertsManual(alerts)
 
 	c.JSON(http.StatusOK, gin.H{"status": "alert sent", "data": testAlert})
 }
 
 func (h *Handler) GetSimulationData(c *gin.Context) {
 	gateID, _ := strconv.Atoi(c.Param("gateId"))
-	gate, _ := h.sensorService.GetGateByID(uint(gateID))
-	if gate == nil {
+	gate, err := h.sensorService.GetGateByID(uint(gateID))
+	if gate == nil || err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Gate not found"})
 		return
 	}
 
-	sim := simulation.NewHydroSimulator(*gate)
-	result := sim.SimulateFullPassage(gate.MaxWaterLevelUp, gate.MinWaterLevelDown, 0.8, "upstream")
+	replyChan := make(chan *hydraulic_sim.SimulateResult, 1)
+	simReq := hydraulic_sim.SimulateRequest{
+		Gate:           *gate,
+		WaterLevelUp:   gate.MaxWaterLevelUp,
+		WaterLevelDown: gate.MinWaterLevelDown,
+		GateOpening:    0.8,
+		Direction:      "upstream",
+		ReplyChan:      replyChan,
+	}
+	h.hydraulicSim.Submit(simReq)
 
+	var simResult *hydraulic_sim.SimulateResult
+	select {
+	case simResult = <-replyChan:
+		if simResult.Error != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": simResult.Error.Error()})
+			return
+		}
+	case <-time.After(15 * time.Second):
+		c.JSON(http.StatusRequestTimeout, gin.H{"error": "simulation timeout"})
+		return
+	}
+
+	passageTime := simResult.FillTime + 300
 	scheduleShips := []models.ScheduleShip{}
 	now := time.Now()
 	for i := 1; i <= 8; i++ {
@@ -268,22 +325,34 @@ func (h *Handler) GetSimulationData(c *gin.Context) {
 	}
 
 	gates := []models.DouGate{*gate}
-	scheduler := optimizer.NewGAScheduler(gates, scheduleShips, result.FillTime+300)
-	bestSolution, _, _ := scheduler.Optimize()
-	scheduleItems := scheduler.GetScheduleItems(bestSolution)
+	optReplyChan := make(chan *scheduler_ga.OptimizeResult, 1)
+	optReq := scheduler_ga.OptimizeRequest{
+		Gates:       gates,
+		Ships:       scheduleShips,
+		PassageTime: passageTime,
+		ReplyChan:   optReplyChan,
+	}
+	h.schedulerGA.Submit(optReq)
+
+	var scheduleItems []models.ScheduleItem
+	select {
+	case optResult := <-optReplyChan:
+		if optResult.Error == nil {
+			scheduleItems = optResult.Schedule
+		}
+	case <-time.After(20 * time.Second):
+	}
 
 	sensorData, _ := h.sensorService.GetLatestSensorData(uint(gateID))
-	alerts, _ := h.alertManager.GetUnresolvedAlerts(uint(gateID))
+	alerts, _ := h.alarmMqtt.GetUnresolvedAlerts(uint(gateID))
 
 	c.JSON(http.StatusOK, gin.H{
 		"data": gin.H{
-			"gate":           gate,
-			"sensor_data":    sensorData,
-			"simulation":     result,
-			"schedule":       scheduleItems,
-			"alerts":         alerts,
+			"gate":        gate,
+			"sensor_data": sensorData,
+			"simulation":  simResult,
+			"schedule":    scheduleItems,
+			"alerts":      alerts,
 		},
 	})
 }
-
-

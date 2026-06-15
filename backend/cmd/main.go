@@ -2,10 +2,17 @@ package main
 
 import (
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/gin-gonic/gin"
 	"lingqu-dou-gate/internal/config"
 	"lingqu-dou-gate/internal/handlers"
+	"lingqu-dou-gate/internal/modules/alarm_mqtt"
+	"lingqu-dou-gate/internal/modules/dtu_receiver"
+	"lingqu-dou-gate/internal/modules/hydraulic_sim"
+	"lingqu-dou-gate/internal/modules/scheduler_ga"
 	"lingqu-dou-gate/internal/services"
 )
 
@@ -18,7 +25,29 @@ func main() {
 	services.InitMQTT()
 	defer services.CloseMQTT()
 
-	handler := handlers.NewHandler()
+	dtuReceiver := dtu_receiver.NewDTUReceiver(2)
+	hydraulicSim := hydraulic_sim.NewHydraulicSimulator(2)
+	schedulerGA := scheduler_ga.NewGAScheduler(2)
+	alarmMqtt := alarm_mqtt.NewAlarmMqtt(dtuReceiver.ValidatedDataChannel(), 2)
+
+	dtuReceiver.Start()
+	hydraulicSim.Start()
+	schedulerGA.Start()
+	alarmMqtt.Start()
+
+	defer func() {
+		dtuReceiver.Stop()
+		hydraulicSim.Stop()
+		schedulerGA.Stop()
+		alarmMqtt.Stop()
+	}()
+
+	handler := handlers.NewHandler(
+		dtuReceiver,
+		hydraulicSim,
+		schedulerGA,
+		alarmMqtt,
+	)
 
 	r := gin.Default()
 
@@ -54,7 +83,17 @@ func main() {
 
 	addr := config.AppConfig.Server.Host + ":" + config.AppConfig.Server.Port
 	log.Printf("Server starting on %s", addr)
-	if err := r.Run(addr); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
-	}
+	log.Printf("Modules: DTU=running, HydraulicSim=running, SchedulerGA=running, AlarmMQTT=running")
+
+	go func() {
+		if err := r.Run(addr); err != nil {
+			log.Fatalf("Failed to start server: %v", err)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	log.Println("Shutting down gracefully...")
 }

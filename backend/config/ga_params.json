@@ -1,0 +1,61 @@
+{
+    "population_size": 100,
+    "max_generations": 200,
+    "mutation_rate": 0.1,
+    "crossover_rate": 0.8,
+    "selection": {
+        "type": "tournament",
+        "tournament_size_small": 3,
+        "tournament_size_large": 5,
+        "large_population_threshold": 30
+    },
+    "elite": {
+        "ratio": 0.1,
+        "min_count": 2,
+        "max_count": 10,
+        "pool_size": 25
+    },
+    "adaptive_rates": {
+        "convergence_gap_ratio": 0.1,
+        "high_convergence_crossover": 0.9,
+        "high_convergence_mutation_multiplier": 0.5,
+        "stagnant_generations_trigger": 10,
+        "stagnant_mutation_multiplier": 2.0,
+        "stagnant_crossover_multiplier": 1.1,
+        "max_mutation_rate": 0.3,
+        "max_crossover_rate": 0.95
+    },
+    "mutation": {
+        "types": ["swap", "inversion", "insertion"],
+        "large_population_extra_mutations": 2
+    },
+    "local_search": {
+        "enabled": true,
+        "stagnant_trigger": 20,
+        "max_iterations": 5
+    },
+    "diversity": {
+        "bonus_weight": 1000,
+        "sample_size": 10
+    },
+    "parallel": {
+        "min_workers": 4,
+        "max_workers": 8,
+        "large_ship_threshold": 20
+    },
+    "initialization": {
+        "heuristic_ratio": 0.2,
+        "large_population_multiplier": 1.5,
+        "large_ship_threshold": 50
+    },
+    "stopping": {
+        "max_stagnant_small": 50,
+        "max_stagnant_large": 80,
+        "large_ship_threshold": 30
+    },
+    "fitness": {
+        "scale_factor": 100000,
+        "priority_weight_power": 2.0,
+        "priority_weight_base": 25.0
+    }
+}
